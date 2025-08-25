@@ -199,7 +199,7 @@ def main():
         shuffle=False,
         collate_fn=my_collate_fn)
     
-    work_dir=f'./work_dirs/PolyGenDETR_AutoReg_{train_root.split('/')[-1]}'
+    work_dir=f'./work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
@@ -226,7 +226,6 @@ def main():
         # visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend', save_dir='/home/guning.wyx/code/mmengine/runs/polyv2_s1v2d2')])
     )
     runner.train()
-    # runner.test()
 
 
 if __name__ == '__main__':
