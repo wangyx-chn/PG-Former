@@ -200,7 +200,7 @@ def main():
         shuffle=False,
         collate_fn=my_collate_fn)
     
-    work_dir=f'./work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
+    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
