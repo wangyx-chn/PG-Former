@@ -206,6 +206,7 @@ def main():
         model=model,
         work_dir=work_dir,
         # load_from='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_margin01/epoch_48.pth',
+        resume=True,
         train_dataloader=train_dataloader,
         optim_wrapper=dict(
             type=AmpOptimWrapper, optimizer=dict(lr=0.0001, betas=(0.9, 0.999), type='AdamW',eps=1e-8, weight_decay=0.01),

@@ -31,8 +31,8 @@ class AutoRegIoU(BaseMetric):
         # test_vis
         vis_dir = osp.join(self.work_dir,'test_val')
         img_dir = self.img_dir
-        if osp.exists(vis_dir):
-            shutil.rmtree(vis_dir)
+        # if osp.exists(vis_dir):
+        #     shutil.rmtree(vis_dir)
         os.makedirs(vis_dir,exist_ok=True)
         
 
