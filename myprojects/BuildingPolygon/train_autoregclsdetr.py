@@ -102,6 +102,7 @@ class PolyGenModel(BaseModel):
             bs = imgs.shape[0]
             inputs = NestedTensor(imgs,torch.zeros_like(imgs)[:,0].to(imgs.device))
             seqlen_dict = {}
+            flag_dict = {i:i for i in range(bs)}
             # 定义开始标志符
             pred_coords = torch.zeros([bs,1,2],dtype=torch.long).to(imgs.device)
             query = NestedTensor(pred_coords,torch.zeros_like(pred_coords)[...,0].to(imgs.device))
@@ -113,16 +114,19 @@ class PolyGenModel(BaseModel):
                 outputs = self.network(inputs,query)
                 pred_coords_x = outputs['pred_coords_x']
                 pred_coords_y = outputs['pred_coords_y']
-                coords_x = torch.argmax(pred_coords_x[:,-1].squeeze())
-                coords_y = torch.argmax(pred_coords_y[:,-1].squeeze())
-                pred_coords = torch.cat([pred_coords,torch.LongTensor([[[coords_x,coords_y]]]).to(imgs.device)], dim=1)
+                coords_x = torch.argmax(pred_coords_x[:,l-1:l],dim=-1,keepdim=True)
+                coords_y = torch.argmax(pred_coords_y[:,l-1:l],dim=-1,keepdim=True)
+                pred_coords = torch.cat([pred_coords,torch.cat([coords_x,coords_y],dim=-1)], dim=1)
                 l += 1
-                for i in range(bs):
-                    if (coords_x[i]>240 or coords_y[i]>240 or len((inputs.tensors)[i])>55) and not seqlen_dict.get(i,None):
+                end_inds = []
+                for i in flag_dict:
+                    if (coords_x[i]>240 or coords_y[i]>240 or len((inputs.tensors)[i])>55):
                         seqlen_dict[i] = l
+                        end_inds.append(i)
+                for i in end_inds:
+                    flag_dict.pop(i)
                 
                 query = NestedTensor(pred_coords,torch.zeros_like(pred_coords)[...,0].to(imgs.device))
-                l+=1
 
             batch_pred = [pred_coords[i][:seqlen_dict[i]] for i in range(bs)]
             return {'pred_coords':batch_pred}, data_samples
