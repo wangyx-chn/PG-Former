@@ -122,6 +122,7 @@ class PolyGenModel(BaseModel):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Distributed Training')
+    parser.add_argument('-t','--trainroot',type=str)
     parser.add_argument(
         '--launcher',
         choices=['none', 'pytorch', 'slurm', 'mpi'],
@@ -150,7 +151,7 @@ def main():
     model = PolyGenModel(model_args)
     # for param in model.network.backbone.parameters():
     #     param.requires_grad = False
-    train_root = '/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_0.1margin_1.0noise20_train'
+    train_root = args.trainroot
     print(train_root)
     train_set = RealGTPolyDataset(
         root = train_root,
