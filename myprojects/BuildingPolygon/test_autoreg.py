@@ -21,8 +21,8 @@ class AutoRegIoU(BaseMetric):
         # input_poly = (((data_samples['mask']['data']-0.5)*aug+0.5).cpu().numpy() * np.array([ori_shape]).reshape(-1,1,2)).astype(np.int32)
         # pred_coords = torch.argmax(data_batch['pred_coords'],dim=1).cpu().numpy()/224.0
         # pred_logits = torch.sigmoid(data_batch['pred_logits']).cpu().numpy() 
-        pred_coords = (data_batch['pred_coords'][:,1:-1].cpu().numpy()-10)/224.0
-        pred_poly = (pred_coords * np.array([ori_shape]).reshape(-1,1,2)).astype(np.int32)
+        pred_coords = [(res[1:-1].cpu().numpy()-10)/224.0 for res in data_batch['pred_coords']]
+        pred_poly = [(res * np.array(ori_shape[i])).reshape(-1,1,2).astype(np.int32) for i,res in enumerate(pred_coords)]
         # pred_edge = [F.interpolate(mask.unsqueeze(0).unsqueeze(0),ori_shape[i]).squeeze().cpu().numpy() for i,mask in enumerate(torch.sigmoid(data_batch['pred_reg']))]
         # pred_poly = pred_poly+input_poly
         # pred_cls = (data_batch['pred_cls'].squeeze()>0.5).cpu().numpy()

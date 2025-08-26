@@ -99,23 +99,37 @@ class PolyGenModel(BaseModel):
         
             return {'loss': loss, 'reg_loss': reg_loss, 'soft_loss': soft_loss}
         elif mode == 'predict':
+            bs = imgs.shape[0]
             inputs = NestedTensor(imgs,torch.zeros_like(imgs)[:,0].to(imgs.device))
+            seqlen_dict = {}
+            flag_dict = {i:i for i in range(bs)}
             # 定义开始标志符
-            pred_coords = torch.zeros([1,1,2],dtype=torch.long).to(imgs.device)
+            pred_coords = torch.zeros([bs,1,2],dtype=torch.long).to(imgs.device)
             query = NestedTensor(pred_coords,torch.zeros_like(pred_coords)[...,0].to(imgs.device))
             coords_x=0
             coords_y=0
-            l = 0
-            while coords_x<240 and coords_y<240 and l<50:
+            l = 1
+            while len(seqlen_dict)<bs:
+                # cur_bs = len(inputs.tensors)
                 outputs = self.network(inputs,query)
                 pred_coords_x = outputs['pred_coords_x']
                 pred_coords_y = outputs['pred_coords_y']
-                coords_x = torch.argmax(pred_coords_x[:,-1].squeeze())
-                coords_y = torch.argmax(pred_coords_y[:,-1].squeeze())
-                pred_coords = torch.cat([pred_coords,torch.LongTensor([[[coords_x,coords_y]]]).to(imgs.device)], dim=1)
+                coords_x = torch.argmax(pred_coords_x[:,l-1:l],dim=-1,keepdim=True)
+                coords_y = torch.argmax(pred_coords_y[:,l-1:l],dim=-1,keepdim=True)
+                pred_coords = torch.cat([pred_coords,torch.cat([coords_x,coords_y],dim=-1)], dim=1)
+                l += 1
+                end_inds = []
+                for i in flag_dict:
+                    if (coords_x[i]>240 or coords_y[i]>240 or len((inputs.tensors)[i])>55):
+                        seqlen_dict[i] = l
+                        end_inds.append(i)
+                for i in end_inds:
+                    flag_dict.pop(i)
+                
                 query = NestedTensor(pred_coords,torch.zeros_like(pred_coords)[...,0].to(imgs.device))
-                l+=1
-            return {'pred_coords':pred_coords}, data_samples
+
+            batch_pred = [pred_coords[i][:seqlen_dict[i]] for i in range(bs)]
+            return {'pred_coords':batch_pred}, data_samples
 
 
 
@@ -150,7 +164,7 @@ def main():
     model = PolyGenModel(model_args)
     # for param in model.network.backbone.parameters():
     #     param.requires_grad = False
-    train_root = '/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_0.1margin_0.5noise20_train'
+    train_root = '/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_margin01_val'
     print(train_root)
     train_set = RealGTPolyDataset(
         root = train_root,
@@ -194,12 +208,12 @@ def main():
     #     collate_fn=my_collate_fn)
 
     val_dataloader = DataLoader(
-        batch_size=1,
+        batch_size=512,
         dataset=valid_set,
         shuffle=False,
         collate_fn=my_collate_fn)
     
-    work_dir='./work_dirs/PolyGenDETR_AutoReg_polygon50_margin01'
+    work_dir='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_margin01'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
@@ -222,7 +236,7 @@ def main():
         launcher=args.launcher,
         # custom_hooks=[SegVisHook('data/CamVid')],
         default_hooks=dict(checkpoint=dict(type='CheckpointHook', interval=1),
-                           logger=dict(interval=100, type='LoggerHook')),
+                           logger=dict(interval=10, type='LoggerHook')),
         # visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend', save_dir='/home/guning.wyx/code/mmengine/runs/polyv2_s1v2d2')])
     )
     # runner.train()
