@@ -141,6 +141,7 @@ def parse_args():
         choices=['none', 'pytorch', 'slurm', 'mpi'],
         default='none',
         help='job launcher')
+    parser.add_argument('-w','--workdir', type=str, default=None)
     parser.add_argument('--local-rank', type=int, default=0)
 
     args = parser.parse_args()
@@ -208,18 +209,18 @@ def main():
     #     collate_fn=my_collate_fn)
 
     val_dataloader = DataLoader(
-        batch_size=512,
+        batch_size=128,
         dataset=valid_set,
         shuffle=False,
         collate_fn=my_collate_fn)
     
-    work_dir='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_margin01'
+    work_dir=args.workdir
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
         model=model,
         work_dir=work_dir,
-        load_from='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_margin01/epoch_48.pth',
+        load_from=osp.join(work_dir,'epoch_48.pth'),
         train_dataloader=train_dataloader,
         optim_wrapper=dict(
             type=AmpOptimWrapper, optimizer=dict(lr=0.0001, betas=(0.9, 0.999), type='AdamW',eps=1e-8, weight_decay=0.01),

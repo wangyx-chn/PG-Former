@@ -209,12 +209,12 @@ def main():
     #     collate_fn=my_collate_fn)
 
     val_dataloader = DataLoader(
-        batch_size=1,
+        batch_size=256,
         dataset=valid_set,
         shuffle=False,
         collate_fn=my_collate_fn)
-    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
-    # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
+    # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
+    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
