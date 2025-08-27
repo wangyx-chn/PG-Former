@@ -45,13 +45,13 @@ class AutoRegIoU(BaseMetric):
 
             # pred_mask = pred_mask[b]
             # pred_points_num = np.sum(pred_logits[b]>0.5)
-            pred_coords = pred_poly[b]
+            single_poly = pred_poly[b]
             try:
                 # img1[pred_edge[b]>0.5] = np.array([0,0,255])
-                img1 = cv2.polylines(img1,[pred_coords.reshape(-1,1,2)],color=(0,0,255),isClosed=True,thickness=2)
+                img1 = cv2.polylines(img1,[single_poly.reshape(-1,1,2)],color=(0,0,255),isClosed=True,thickness=2)
             except:
                 # print(pred_edge[b].shape,img1.shape)
-                print(pred_coords)
+                print(single_poly)
             img2 = cv2.polylines(img2,[real_gt[b].reshape(-1,1,2)],color=(0,0,255),isClosed=True,thickness=2)
             img = np.hstack([img1,img2])
             cv2.imwrite(osp.join(vis_dir,img_name),img)
@@ -65,7 +65,7 @@ class AutoRegIoU(BaseMetric):
 
             # # input_mask = cv2.fillPoly(input_mask,[input_poly[b].reshape(-1,1,2)],color=1)
             try:
-                pred_mask = cv2.fillPoly(pred_mask,[pred_coords.reshape(-1,1,2).astype(np.int32)],color=1)
+                pred_mask = cv2.fillPoly(pred_mask,[single_poly.reshape(-1,1,2).astype(np.int32)],color=1)
             except:
                 pass
             # # pred_refine_mask = cv2.fillPoly(pred_refine_mask,[pred_poly[b][pred_cls[b]].reshape(-1,1,2)],color=1)
@@ -92,7 +92,7 @@ class AutoRegIoU(BaseMetric):
             length = gt.shape[0]
             new_gt = np.zeros((50,1))
             new_gt[:length] = gt
-            acc = np.abs(len(pred_poly)-length)/length
+            acc = np.abs(len(single_poly)-length)/length
             self.results.append(dict(pred_intersect=pred_intersect,pred_union=pred_union,acc = acc, gt=new_gt))
 
     def compute_metrics(self, results):
