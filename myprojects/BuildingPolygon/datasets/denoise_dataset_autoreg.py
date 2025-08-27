@@ -4,6 +4,7 @@ import pickle
 import numpy as np
 import cv2
 import math
+import json
 from PIL import Image
 from torchvision.datasets import VisionDataset
 import torch.nn.functional as F
@@ -36,20 +37,33 @@ class RealGTPolyDataset(VisionDataset):
 
         self.sorted_length = np.sort(self.point_length)
         self.sorted_indices = np.argsort(self.point_length)
-
+        with open(osp.join(root,'noise_record.json'),'r') as f:
+            noise = json.load(f)
+        
         if select_k:
             random.seed(2)
             self.sorted_indices = random.choices(self.sorted_indices,k=select_k)
             self.sorted_length = [self.sorted_length[i] for i in self.sorted_indices]
             self.length = len(self.sorted_length)
-        
-        
+        print('denoise')
+        self.denoise_ids = []
+        for i in range(self.length):
+            if noise==[]:
+                self.denoise_ids.append(i)
+                continue
+            if i==noise[0]['id']:
+                noise.pop(0)
+            else:
+                self.denoise_ids.append(i)
+        self.length = len(self.denoise_ids)
+        print('finished')
         pass
 
     def __len__(self):
         return self.length
     
-    def __getitem__(self, index):
+    def __getitem__(self, id):
+        index = self.denoise_ids[id]
         img_path = os.path.join(self.img_dir, f'{index}.png')
         
         # gt_path = os.path.join(self.gt_dir, f'{index}_sampled_gt.npy') #for train
