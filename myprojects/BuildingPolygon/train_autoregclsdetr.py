@@ -168,7 +168,7 @@ def main():
     #     param.requires_grad = False
     train_root = args.trainroot
     print(train_root)
-    train_set = DenoisePolyDataset(
+    train_set = RealGTPolyDataset(
         root = train_root,
         img_dir='image_patch',
         gt_dir='gt_poly',
@@ -209,12 +209,12 @@ def main():
     #     collate_fn=my_collate_fn)
 
     val_dataloader = DataLoader(
-        batch_size=256,
+        batch_size=128,
         dataset=valid_set,
         shuffle=False,
         collate_fn=my_collate_fn)
     # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
-    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_Denoise_{train_root.split("/")[-1]}'
+    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(

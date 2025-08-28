@@ -25,7 +25,7 @@ from mmengine.optim import AmpOptimWrapper
 from mmengine.runner import Runner
 from mmengine.dataset import DefaultSampler
 
-from models.autoregdetr import AutoRegDETR, NestedTensor
+from models.autoregdetr import TwoLineAutoRegDETR, NestedTensor
 from datasets.dynamic_dataset_autoreg import RealGTPolyDataset
 from datasets.denoise_dataset_autoreg import RealGTPolyDataset as DenoisePolyDataset
 from utils import DynamicBatchSampler, my_collate_fn
@@ -37,11 +37,12 @@ class PolyGenModel(BaseModel):
 
     def __init__(self,model_args):
         super().__init__()
-        self.network = AutoRegDETR(**model_args)
+        self.network = TwoLineAutoRegDETR(**model_args)
         # self.reg_loss = nn.MSELoss()
         self.reg_loss = nn.CrossEntropyLoss(ignore_index=-100)
-        self.cls_loss = nn.BCEWithLogitsLoss()
         self.mse_loss = nn.MSELoss()
+        self.delta_reg_loss = nn.CrossEntropyLoss(ignore_index=-100)
+        self.delta_mse_loss = nn.MSELoss()
 
     def forward(self, imgs, data_samples=None, mode='tensor'):
         # aug = random.uniform(0.5, 1.5)
@@ -58,6 +59,7 @@ class PolyGenModel(BaseModel):
             b, s = input_coord.shape[:2] # [ B S 2 ]
             input_coord = torch.cat([input_coord,torch.zeros([b,1,2]).to(device)], dim=1)
             target_coords = deepcopy(input_coord)
+            delta_target_coords = deepcopy(input_coord)
             pad_mask = data_samples['real_gt']['pad_mask'][...,0]
             pad_mask = torch.cat([torch.zeros([b,1]).to(device), pad_mask], dim=1)
             lens = (1-pad_mask).sum(dim=1).to(torch.int)-1
@@ -65,13 +67,17 @@ class PolyGenModel(BaseModel):
             for b,l in enumerate(lens):
                 input_coord[b] = torch.concat([torch.Tensor([[0,0]]).to(device),input_coord[b][:-1]],dim=0)
                 target_coords[b] = torch.concat([target_coords[b][:l],torch.Tensor([[243,243]]).to(device),target_coords[b][l:-1]],dim=0)
+                delta = (torch.concat([target_coords[b][1:l],target_coords[b][:1]],dim=0)-target_coords[b][:l])/2+112
+                delta_target_coords[b] = torch.concat([delta,torch.Tensor([[243,243]]).to(device),target_coords[b][l:-1]],dim=0)
             query = NestedTensor(input_coord.to(torch.int64),pad_mask)
             outputs = self.network(inputs,query)
             pred_coords_x = outputs['pred_coords_x']
             pred_coords_y = outputs['pred_coords_y']
             pred_coords = torch.concat([pred_coords_x.unsqueeze(2),pred_coords_y.unsqueeze(2)],dim=2).permute(0,3,1,2)
             # pred_logits = outputs['pred_logits']
-            
+            pred_delta_x = outputs['pred_delta_x']
+            pred_delta_y = outputs['pred_delta_y']
+            pred_delta_coords = torch.concat([pred_delta_x.unsqueeze(2),pred_delta_y.unsqueeze(2)],dim=2).permute(0,3,1,2)
             # valid_mask = 1 - data_samples['real_gt']['pad_mask']
             # max_len = data_samples['real_gt']['data'].shape[1]
             # target_coords = torch.zeros((pred_coords.shape[0],pred_coords.shape[2],pred_coords.shape[3]),dtype=torch.long).to(pred_coords.device)
@@ -89,10 +95,46 @@ class PolyGenModel(BaseModel):
             sigma = 2
             gaussian = torch.exp(- (positions - mu) ** 2 / (2 * sigma ** 2)) # B 224 50 2
             soft_loss = self.mse_loss(torch.sigmoid(pred_coords)*(target_coords.unsqueeze(1)!=-100),gaussian*(target_coords.unsqueeze(1)!=-100))
-            # target = (data_samples['real_gt']['data'].view(-1,100)-0.5)*2
             reg_loss = self.reg_loss(pred_coords, target_coords) # 缩放到[-1,1]
-            # cls_loss = self.cls_loss(pred_logits,target_cls)
-            loss = reg_loss + soft_loss
+            
+            # delta xy 部分的损失函数
+            delta_target_coords = delta_target_coords.to(torch.int64)
+            delta_target_coords[pad_mask==1]=-100
+
+            # 加入一个引导回归分类的软标签，用一个高斯分布
+            mu = delta_target_coords.unsqueeze(1)
+            positions = torch.arange(244, dtype=torch.float32, device=mu.device)
+            positions = positions.view(1, 244, 1, 1)
+            sigma = 2
+            gaussian = torch.exp(- (positions - mu) ** 2 / (2 * sigma ** 2)) # B 224 50 2
+            delta_soft_loss = self.delta_mse_loss(torch.sigmoid(pred_delta_coords)*(delta_target_coords.unsqueeze(1)!=-100),gaussian*(delta_target_coords.unsqueeze(1)!=-100))
+            delta_reg_loss = self.delta_reg_loss(pred_delta_coords, delta_target_coords) # 缩放到[-1,1]
+            
+            point_weight = 1.0
+            delta_weight = 1.0
+
+            # TODO: delta和point相加得到的自监督损失 pct:pseudo_coord_target
+            pseudo_delta = torch.argmax(delta_target_coords,dim=-1)
+            pct = pseudo_delta.detach() + target_coords.detach()
+            for b,l in enumerate(lens):
+                pct[b] = torch.cat([pct[:l-1],pct[l-1:l],pct[l:]])
+
+            pct = target_coords.to(torch.int64)
+            pct[pad_mask==1]=-100
+
+            # 加入一个引导回归分类的软标签，用一个高斯分布
+            mu = pct.unsqueeze(1)
+            positions = torch.arange(244, dtype=torch.float32, device=mu.device)
+            positions = positions.view(1, 244, 1, 1)
+            sigma = 2
+            gaussian = torch.exp(- (positions - mu) ** 2 / (2 * sigma ** 2)) # B 224 50 2
+            pct_soft_loss = self.mse_loss(torch.sigmoid(pred_coords)*(pct.unsqueeze(1)!=-100),gaussian*(pct.unsqueeze(1)!=-100))
+            pct_reg_loss = self.reg_loss(pred_coords, pct) # 缩放到[-1,1]
+
+            pct_weight = 1.0
+
+            loss = point_weight * (reg_loss + soft_loss) + delta_weight * (delta_soft_loss + delta_reg_loss) \
+            + pct_weight * (pct_soft_loss + pct_reg_loss)
             # data_samples['imgs'] = imgs.cpu().numpy()
             # writer.add_scalar("train_loss", loss)
             # writer.add_scalar("reg_loss", reg_loss)
