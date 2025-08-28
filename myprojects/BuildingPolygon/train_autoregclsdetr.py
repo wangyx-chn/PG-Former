@@ -121,7 +121,7 @@ class PolyGenModel(BaseModel):
                 l += 1
                 end_inds = []
                 for i in flag_dict:
-                    if (coords_x[i]>240 or coords_y[i]>240 or len((inputs.tensors)[i])>55):
+                    if (coords_x[i]>240 or coords_y[i]>240 or len((query.tensors)[i])>55):
                         seqlen_dict[i] = l
                         end_inds.append(i)
                 for i in end_inds:
@@ -137,7 +137,7 @@ class PolyGenModel(BaseModel):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Distributed Training')
-    parser.add_argument('-t','--trainroot',type=str)
+    parser.add_argument('-t','--trainroot',type=str,default='/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_0.1margin_0.5singlenoise20_train')
     parser.add_argument(
         '--launcher',
         choices=['none', 'pytorch', 'slurm', 'mpi'],
@@ -168,6 +168,7 @@ def main():
     #     param.requires_grad = False
     train_root = args.trainroot
     print(train_root)
+    # RealGTPolyDataset,DenoisePolyDataset
     train_set = RealGTPolyDataset(
         root = train_root,
         img_dir='image_patch',
@@ -215,6 +216,7 @@ def main():
         collate_fn=my_collate_fn)
     # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
     work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
+    # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
@@ -228,7 +230,7 @@ def main():
             clip_grad=dict(max_norm=10,norm_type=2)),
         param_scheduler = [dict(begin=0,by_epoch=False,end=5000,start_factor=0.01,type='LinearLR'),
                             dict(begin=0,by_epoch=True,end=48,gamma=0.1,milestones=[24,36],type='MultiStepLR'),],
-        train_cfg=dict(by_epoch=True, max_epochs=48, val_begin=40, val_interval=2),
+        train_cfg=dict(by_epoch=True, max_epochs=48, val_begin=40, val_interval=1),
         val_dataloader=val_dataloader,
         val_cfg=dict(),
         test_dataloader=val_dataloader,
