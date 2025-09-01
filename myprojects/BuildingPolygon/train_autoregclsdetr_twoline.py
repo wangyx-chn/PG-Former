@@ -67,7 +67,7 @@ class PolyGenModel(BaseModel):
             for b,l in enumerate(lens):
                 input_coord[b] = torch.concat([torch.Tensor([[0,0]]).to(device),input_coord[b][:-1]],dim=0)
                 target_coords[b] = torch.concat([target_coords[b][:l],torch.Tensor([[243,243]]).to(device),target_coords[b][l:-1]],dim=0)
-                delta = (torch.concat([target_coords[b][1:l],target_coords[b][:1]],dim=0)-target_coords[b][:l])/2+112
+                delta = (torch.concat([target_coords[b][1:l],target_coords[b][:1]],dim=0)-target_coords[b][:l])/2+122
                 delta_target_coords[b] = torch.concat([delta,torch.Tensor([[243,243]]).to(device),target_coords[b][l:-1]],dim=0)
             query = NestedTensor(input_coord.to(torch.int64),pad_mask)
             outputs = self.network(inputs,query)
@@ -114,12 +114,14 @@ class PolyGenModel(BaseModel):
             delta_weight = 1.0
 
             # TODO: delta和point相加得到的自监督损失 pct:pseudo_coord_target
-            pseudo_delta = torch.argmax(delta_target_coords,dim=-1)
-            pct = pseudo_delta.detach() + target_coords.detach()
+            pseudo_delta = torch.argmax(pred_delta_coords,dim=1).detach()
+            pct = torch.zeros_like(target_coords).to(target_coords.device)
+            pseudo_tgt = (pseudo_delta-122)*2+target_coords
+            pseudo_tgt = torch.clamp(pseudo_tgt,10,234)
             for b,l in enumerate(lens):
-                pct[b] = torch.cat([pct[:l-1],pct[l-1:l],pct[l:]])
+                pct[b] = torch.cat([pseudo_tgt[b][l-1:l],pseudo_tgt[b][:l-1],target_coords[b][l:]])
 
-            pct = target_coords.to(torch.int64)
+            pct = pct.to(torch.int64)
             pct[pad_mask==1]=-100
 
             # 加入一个引导回归分类的软标签，用一个高斯分布
@@ -131,7 +133,7 @@ class PolyGenModel(BaseModel):
             pct_soft_loss = self.mse_loss(torch.sigmoid(pred_coords)*(pct.unsqueeze(1)!=-100),gaussian*(pct.unsqueeze(1)!=-100))
             pct_reg_loss = self.reg_loss(pred_coords, pct) # 缩放到[-1,1]
 
-            pct_weight = 1.0
+            pct_weight = 0.0
 
             loss = point_weight * (reg_loss + soft_loss) + delta_weight * (delta_soft_loss + delta_reg_loss) \
             + pct_weight * (pct_soft_loss + pct_reg_loss)
@@ -140,7 +142,9 @@ class PolyGenModel(BaseModel):
             # writer.add_scalar("reg_loss", reg_loss)
             # writer.add_scalar("cls_loss", cls_loss)
         
-            return {'loss': loss, 'reg_loss': reg_loss, 'soft_loss': soft_loss}
+            return {'loss': loss, 'reg_loss': reg_loss, 'soft_loss': soft_loss,
+                    'delta_soft_loss': delta_soft_loss, 'delta_reg_loss': delta_reg_loss,
+                    'pct_soft_loss': pct_soft_loss, 'pct_reg_loss': pct_reg_loss}
         elif mode == 'predict':
             bs = imgs.shape[0]
             inputs = NestedTensor(imgs,torch.zeros_like(imgs)[:,0].to(imgs.device))
@@ -163,7 +167,7 @@ class PolyGenModel(BaseModel):
                 l += 1
                 end_inds = []
                 for i in flag_dict:
-                    if (coords_x[i]>240 or coords_y[i]>240 or len((inputs.tensors)[i])>55):
+                    if (coords_x[i]>240 or coords_y[i]>240 or len((query.tensors)[i])>55):
                         seqlen_dict[i] = l
                         end_inds.append(i)
                 for i in end_inds:
@@ -179,7 +183,8 @@ class PolyGenModel(BaseModel):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Distributed Training')
-    parser.add_argument('-t','--trainroot',type=str)
+    parser.add_argument('-t','--trainroot',type=str,\
+                        default='/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_0.1margin_1.0noise20_train')
     parser.add_argument(
         '--launcher',
         choices=['none', 'pytorch', 'slurm', 'mpi'],
@@ -208,9 +213,10 @@ def main():
     model = PolyGenModel(model_args)
     # for param in model.network.backbone.parameters():
     #     param.requires_grad = False
+    # RealGTPolyDataset,DenoisePolyDataset
     train_root = args.trainroot
     print(train_root)
-    train_set = DenoisePolyDataset(
+    train_set = RealGTPolyDataset(
         root = train_root,
         img_dir='image_patch',
         gt_dir='gt_poly',
@@ -256,14 +262,14 @@ def main():
         shuffle=False,
         collate_fn=my_collate_fn)
     # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
-    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_Denoise_{train_root.split("/")[-1]}'
+    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
         model=model,
         work_dir=work_dir,
         # load_from='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_margin01/epoch_48.pth',
-        resume=True,
+        # resume=True,
         train_dataloader=train_dataloader,
         optim_wrapper=dict(
             type=AmpOptimWrapper, optimizer=dict(lr=0.0001, betas=(0.9, 0.999), type='AdamW',eps=1e-8, weight_decay=0.01),

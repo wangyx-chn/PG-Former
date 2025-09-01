@@ -105,10 +105,10 @@ class TwoLineAutoRegDETR(nn.Module):
         # outputs_class = self.class_head(hs)
         outputs_coord_x = self.point_x_head(hs)
         outputs_coord_y = self.point_y_head(hs)
-        outputs_delta_x = self.point_x_head(hs)
-        outputs_delta_y = self.point_y_head(hs)
+        outputs_delta_x = self.delta_x_head(hs)
+        outputs_delta_y = self.delta_y_head(hs)
         out = {'pred_coords_x': outputs_coord_x[-1], 'pred_coords_y': outputs_coord_y[-1],
-               'pred_coords_x': outputs_delta_x[-1], 'pred_coords_y': outputs_delta_y[-1]}
+               'pred_delta_x': outputs_delta_x[-1], 'pred_delta_y': outputs_delta_y[-1]}
         # if self.aux_loss:
         #     out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         return out
