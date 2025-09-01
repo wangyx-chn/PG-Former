@@ -14,21 +14,15 @@ from PIL import Image
 from torch.optim import AdamW
 from copy import deepcopy
 from torch.utils.data import DataLoader
-from torchvision.datasets import VisionDataset
-from torchvision.models.segmentation import deeplabv3_resnet50
-
-from mmengine.dist import master_only
-from mmengine.evaluator import BaseMetric
-from mmengine.hooks import Hook
 from mmengine.model import BaseModel
 from mmengine.optim import AmpOptimWrapper
 from mmengine.runner import Runner
 from mmengine.dataset import DefaultSampler
 
 from models.autoregdetr import AutoRegDETR, NestedTensor
-from datasets.dynamic_dataset_autoreg import RealGTPolyDataset
+from datasets.imagelevel_dataset_autoreg import ImagePolyDataset
 from utils import DynamicBatchSampler, my_collate_fn
-from test_autoreg import AutoRegIoU as IoU
+from test_autoreg_imginfer import AutoRegIoU as IoU
 # from tensorboardX import SummaryWriter
 
 
@@ -48,56 +42,8 @@ class PolyGenModel(BaseModel):
         # data_samples['aug'] = aug
         # reg = self.network(imgs,input,pad_mask)
         if mode == 'loss':
-            inputs = NestedTensor(imgs,torch.zeros_like(imgs)[:,0].to(imgs.device))
-
-            # 处理input
-            input_coord = data_samples['real_gt']['data']*223+10
-            input_coord = torch.clamp(input_coord,10,234)
-            device = input_coord.device
-            b, s = input_coord.shape[:2] # [ B S 2 ]
-            input_coord = torch.cat([input_coord,torch.zeros([b,1,2]).to(device)], dim=1)
-            target_coords = deepcopy(input_coord)
-            pad_mask = data_samples['real_gt']['pad_mask'][...,0]
-            pad_mask = torch.cat([torch.zeros([b,1]).to(device), pad_mask], dim=1)
-            lens = (1-pad_mask).sum(dim=1).to(torch.int)-1
-            
-            for b,l in enumerate(lens):
-                input_coord[b] = torch.concat([torch.Tensor([[0,0]]).to(device),input_coord[b][:-1]],dim=0)
-                target_coords[b] = torch.concat([target_coords[b][:l],torch.Tensor([[243,243]]).to(device),target_coords[b][l:-1]],dim=0)
-            query = NestedTensor(input_coord.to(torch.int64),pad_mask)
-            outputs = self.network(inputs,query)
-            pred_coords_x = outputs['pred_coords_x']
-            pred_coords_y = outputs['pred_coords_y']
-            pred_coords = torch.concat([pred_coords_x.unsqueeze(2),pred_coords_y.unsqueeze(2)],dim=2).permute(0,3,1,2)
-            # pred_logits = outputs['pred_logits']
-            
-            # valid_mask = 1 - data_samples['real_gt']['pad_mask']
-            # max_len = data_samples['real_gt']['data'].shape[1]
-            # target_coords = torch.zeros((pred_coords.shape[0],pred_coords.shape[2],pred_coords.shape[3]),dtype=torch.long).to(pred_coords.device)
-            # target_coords[:,:max_len] = (data_samples['real_gt']['data']*224).to(torch.long)
-            # target_cls = torch.zeros_like(pred_logits).to(pred_logits.device)
-            # target_cls[:,:max_len] = 1-data_samples['real_gt']['pad_mask'][...,:1]
-            # target_coords = torch.clamp(target_coords,0,223)
-            target_coords = target_coords.to(torch.int64)
-            target_coords[pad_mask==1]=-100
-
-            # 加入一个引导回归分类的软标签，用一个高斯分布
-            mu = target_coords.unsqueeze(1)
-            positions = torch.arange(244, dtype=torch.float32, device=mu.device)
-            positions = positions.view(1, 244, 1, 1)
-            sigma = 2
-            gaussian = torch.exp(- (positions - mu) ** 2 / (2 * sigma ** 2)) # B 224 50 2
-            soft_loss = self.mse_loss(torch.sigmoid(pred_coords)*(target_coords.unsqueeze(1)!=-100),gaussian*(target_coords.unsqueeze(1)!=-100))
-            # target = (data_samples['real_gt']['data'].view(-1,100)-0.5)*2
-            reg_loss = self.reg_loss(pred_coords, target_coords) # 缩放到[-1,1]
-            # cls_loss = self.cls_loss(pred_logits,target_cls)
-            loss = reg_loss + soft_loss
-            # data_samples['imgs'] = imgs.cpu().numpy()
-            # writer.add_scalar("train_loss", loss)
-            # writer.add_scalar("reg_loss", reg_loss)
-            # writer.add_scalar("cls_loss", cls_loss)
-        
-            return {'loss': loss, 'reg_loss': reg_loss, 'soft_loss': soft_loss}
+            print('This script is only for image infer!!!')
+            raise NotImplementedError
         elif mode == 'predict':
             bs = imgs.shape[0]
             inputs = NestedTensor(imgs,torch.zeros_like(imgs)[:,0].to(imgs.device))
@@ -165,49 +111,21 @@ def main():
     model = PolyGenModel(model_args)
     # for param in model.network.backbone.parameters():
     #     param.requires_grad = False
-    train_root = '/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_margin01_val'
-    print(train_root)
-    train_set = RealGTPolyDataset(
-        root = train_root,
-        img_dir='image_patch',
-        gt_dir='gt_poly',
-        # pt_len_path='point_length_real_gt.pkl',
-        pt_len_path='point_length.pkl',
+    img_dir = '/home/guning.wyx/code/mmengine/data/WHUBuilding/validation'
+    detect_path = '/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_margin01_val'
+    valid_set = ImagePolyDataset(
+        img_dir=img_dir,
+        detect_path=detect_path,
         img_size=img_size,
-        # select_k = 30000,
         transform=transform,
         target_transform=target_transform)
-    
-    val_root = '/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_margin01_val'
-    valid_set = RealGTPolyDataset(
-        root = val_root,
-        img_dir='image_patch',
-        gt_dir='gt_poly',
-        # pt_len_path='point_length_real_gt.pkl',
-        pt_len_path='point_length.pkl',
-        img_size=img_size,
-        # select_k = 10000,
-        transform=transform,
-        target_transform=target_transform)
-
-    # train_dataloader = DataLoader(
-    #     batch_size=1,
-    #     dataset=train_set,
-    #     batch_sampler=DynamicBatchSampler(dataset=train_set, sampler=DefaultSampler(train_set), max_token=51200, shuffle=True),
-    #     collate_fn=my_collate_fn)
 
     train_dataloader = DataLoader(
         batch_size=128,
-        dataset=train_set,
-        shuffle=True,
+        dataset=valid_set,
+        shuffle=False,
         collate_fn=my_collate_fn)
     
-    # val_dataloader = DataLoader(
-    #     batch_size=1,
-    #     dataset=valid_set,
-    #     batch_sampler=DynamicBatchSampler(dataset=valid_set, sampler=DefaultSampler(valid_set), max_token=51200, shuffle=True),
-    #     collate_fn=my_collate_fn)
-
     val_dataloader = DataLoader(
         batch_size=128,
         dataset=valid_set,
@@ -215,7 +133,7 @@ def main():
         collate_fn=my_collate_fn)
     
     work_dir=args.workdir
-    val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
+    val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=img_dir)
     
     runner = Runner(
         model=model,
