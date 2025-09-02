@@ -87,7 +87,7 @@ def parse_args():
         choices=['none', 'pytorch', 'slurm', 'mpi'],
         default='none',
         help='job launcher')
-    parser.add_argument('-w','--workdir', type=str, default=None)
+    parser.add_argument('-w','--workdir', type=str, default='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50')
     parser.add_argument('--local-rank', type=int, default=0)
 
     args = parser.parse_args()
@@ -112,10 +112,11 @@ def main():
     # for param in model.network.backbone.parameters():
     #     param.requires_grad = False
     img_dir = '/home/guning.wyx/code/mmengine/data/WHUBuilding/validation'
-    detect_path = '/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_margin01_val'
+    detect_path = '/home/guning.wyx/code/mmdetection/work_dirs/dino-5scale_swin-l_8xb2-36e_whu/predict_results.pkl'
     valid_set = ImagePolyDataset(
         img_dir=img_dir,
         detect_path=detect_path,
+        thr=0.5,
         img_size=img_size,
         transform=transform,
         target_transform=target_transform)
@@ -133,7 +134,7 @@ def main():
         collate_fn=my_collate_fn)
     
     work_dir=args.workdir
-    val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=img_dir)
+    val_evaluator=dict(type=IoU,work_dir=work_dir)
     
     runner = Runner(
         model=model,

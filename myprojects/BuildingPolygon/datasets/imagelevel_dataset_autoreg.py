@@ -17,6 +17,7 @@ class ImagePolyDataset(VisionDataset):
                  img_dir,
                  detect_path,
                  img_size,
+                 thr,
                  select_k = None,
                  transform=None,
                  target_transform=None):
@@ -25,6 +26,7 @@ class ImagePolyDataset(VisionDataset):
         self.img_dir = osp.join(img_dir)
         self.detect_path = osp.join(detect_path)
         self.img_size = img_size
+        self.thr = thr
 
         # for i in range(self.length):
         #     self.point_length.append(len(np.load(osp.join(self.mask_dir,f'{i}.npy'))))
@@ -33,9 +35,12 @@ class ImagePolyDataset(VisionDataset):
         
         self.all_results = []
         for img in self.dt_results:
-            for res in img['results']:
-                res = {'img_path':osp.join(img_dir,img['file_name']),'bbox':res['bbox'],'score':res['score']}
-                self.all_results.append(res)
+            results = img['pred_instances']
+            n = len(results['scores'])
+            for i in range(n):
+                if results['scores'][i]>self.thr:
+                    res = {'img_path':osp.join(img_dir,osp.basename(img['img_path'])),'bbox':results['bboxes'][i],'score':results['scores'][i]}
+                    self.all_results.append(res)
             
         self.cur_img_path = None
 
@@ -44,18 +49,17 @@ class ImagePolyDataset(VisionDataset):
     
     def __getitem__(self, index):
         res = self.all_results[index]
-        img_path = res['image_name']
+        img_path = res['img_path']
         if img_path != self.cur_img_path:
             self.cur_img = Image.open(img_path).convert('RGB')
             self.cur_img_path = img_path
         
         bbox = res['bbox']
-        x0,y0,w,h = bbox
-        img_patch = self.cur_img[y0:y0+h,x0:x0+w]
+        img_patch = self.cur_img.crop(bbox.tolist())
         ori_shape = img_patch.size
 
         if self.transform is not None:
-            img = self.transform(img)
+            img = self.transform(img_patch)
         img = F.interpolate(img.unsqueeze(0),size=self.img_size,mode='bilinear').squeeze(0)
         
 
