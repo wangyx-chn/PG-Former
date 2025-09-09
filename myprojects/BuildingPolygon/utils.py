@@ -40,7 +40,7 @@ def my_collate_fn(data_batch:Sequence, needPad=False):
         data_item = data_batch[0]
         data_item_type = type(data_item)
 
-        if isinstance(data_item, (str, bytes)):
+        if isinstance(data_item, (str, bytes ,bool)):
             return data_batch
         elif isinstance(data_item,Sequence):
             if isinstance(data_item[0],(int,float)):

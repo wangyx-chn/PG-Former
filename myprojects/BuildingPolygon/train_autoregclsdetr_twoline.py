@@ -6,6 +6,7 @@ import shutil
 import random
 import cv2
 import numpy as np
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -35,14 +36,19 @@ from test_autoreg import AutoRegIoU as IoU
 
 class PolyGenModel(BaseModel):
 
-    def __init__(self,model_args):
+    def __init__(self,cfg,model_args):
         super().__init__()
         self.network = TwoLineAutoRegDETR(**model_args)
         # self.reg_loss = nn.MSELoss()
-        self.reg_loss = nn.CrossEntropyLoss(ignore_index=-100)
-        self.mse_loss = nn.MSELoss()
+        self.reg_loss = nn.CrossEntropyLoss(ignore_index=-100,reduction='none')
+        self.mse_loss = nn.MSELoss(reduction='none')
         self.delta_reg_loss = nn.CrossEntropyLoss(ignore_index=-100)
         self.delta_mse_loss = nn.MSELoss()
+        self.point_weight = cfg.point_weight
+        self.delta_weight = cfg.delta_weight
+        self.pct_weight = cfg.pct_weight
+
+        self.temp = cfg.temp
 
     def forward(self, imgs, data_samples=None, mode='tensor'):
         # aug = random.uniform(0.5, 1.5)
@@ -85,6 +91,10 @@ class PolyGenModel(BaseModel):
             # target_cls = torch.zeros_like(pred_logits).to(pred_logits.device)
             # target_cls[:,:max_len] = 1-data_samples['real_gt']['pad_mask'][...,:1]
             # target_coords = torch.clamp(target_coords,0,223)
+
+            noise_flag = torch.Tensor(data_samples['meta']['noise_flag']).to(pred_coords.device).view(-1,1,1)
+            noise_flag = noise_flag*self.temp
+
             target_coords = target_coords.to(torch.int64)
             target_coords[pad_mask==1]=-100
 
@@ -96,7 +106,15 @@ class PolyGenModel(BaseModel):
             gaussian = torch.exp(- (positions - mu) ** 2 / (2 * sigma ** 2)) # B 224 50 2
             soft_loss = self.mse_loss(torch.sigmoid(pred_coords)*(target_coords.unsqueeze(1)!=-100),gaussian*(target_coords.unsqueeze(1)!=-100))
             reg_loss = self.reg_loss(pred_coords, target_coords) # 缩放到[-1,1]
-            
+            soft_num = math.prod(soft_loss.shape[1:])
+            reg_num = math.prod(reg_loss.shape[1:])
+
+            soft_loss = (soft_loss*(1-noise_flag.unsqueeze(3))).sum()/soft_num
+            reg_loss = (reg_loss*(1-noise_flag)).sum()/reg_num
+
+            if (1-noise_flag).sum()!=0:
+                soft_loss = soft_loss/(1-noise_flag).sum()
+                reg_loss = reg_loss/(1-noise_flag).sum()
             # delta xy 部分的损失函数
             delta_target_coords = delta_target_coords.to(torch.int64)
             delta_target_coords[pad_mask==1]=-100
@@ -110,8 +128,8 @@ class PolyGenModel(BaseModel):
             delta_soft_loss = self.delta_mse_loss(torch.sigmoid(pred_delta_coords)*(delta_target_coords.unsqueeze(1)!=-100),gaussian*(delta_target_coords.unsqueeze(1)!=-100))
             delta_reg_loss = self.delta_reg_loss(pred_delta_coords, delta_target_coords) # 缩放到[-1,1]
             
-            point_weight = 1.0
-            delta_weight = 1.0
+            point_weight = self.point_weight
+            delta_weight = self.delta_weight
 
             # TODO: delta和point相加得到的自监督损失 pct:pseudo_coord_target
             pseudo_delta = torch.argmax(pred_delta_coords,dim=1).detach()
@@ -132,8 +150,14 @@ class PolyGenModel(BaseModel):
             gaussian = torch.exp(- (positions - mu) ** 2 / (2 * sigma ** 2)) # B 224 50 2
             pct_soft_loss = self.mse_loss(torch.sigmoid(pred_coords)*(pct.unsqueeze(1)!=-100),gaussian*(pct.unsqueeze(1)!=-100))
             pct_reg_loss = self.reg_loss(pred_coords, pct) # 缩放到[-1,1]
+            pct_soft_loss = (pct_soft_loss*noise_flag.unsqueeze(3)).sum()/soft_num
+            pct_reg_loss = (pct_reg_loss*noise_flag).sum()/reg_num
+            if noise_flag.sum()!=0:
+                pct_soft_loss = pct_soft_loss/noise_flag.sum()
+                pct_reg_loss = pct_reg_loss/noise_flag.sum()
+            
 
-            pct_weight = 0.0
+            pct_weight = self.pct_weight
 
             loss = point_weight * (reg_loss + soft_loss) + delta_weight * (delta_soft_loss + delta_reg_loss) \
             + pct_weight * (pct_soft_loss + pct_reg_loss)
@@ -184,7 +208,13 @@ class PolyGenModel(BaseModel):
 def parse_args():
     parser = argparse.ArgumentParser(description='Distributed Training')
     parser.add_argument('-t','--trainroot',type=str,\
-                        default='/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_0.1margin_1.0noise20_train')
+                        default='/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_0.1margin_0.8noise20_train')
+    
+    parser.add_argument('--point_weight',type=float,default=1.0)
+    parser.add_argument('--delta_weight',type=float,default=1.0)
+    parser.add_argument('--pct_weight',type=float,default=1.0)
+    parser.add_argument('--temp',type=float,default=0.4)
+    
     parser.add_argument(
         '--launcher',
         choices=['none', 'pytorch', 'slurm', 'mpi'],
@@ -210,7 +240,7 @@ def main():
     img_size = 224
     model_args = dict(hidden_dim=256)
     
-    model = PolyGenModel(model_args)
+    model = PolyGenModel(args, model_args)
     # for param in model.network.backbone.parameters():
     #     param.requires_grad = False
     # RealGTPolyDataset,DenoisePolyDataset
@@ -262,7 +292,7 @@ def main():
         shuffle=False,
         collate_fn=my_collate_fn)
     # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
-    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_{train_root.split("/")[-1]}'
+    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_{train_root.split("/")[-1]}_1'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
@@ -289,6 +319,7 @@ def main():
                            logger=dict(interval=100, type='LoggerHook')),
         # visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend', save_dir='/home/guning.wyx/code/mmengine/runs/polyv2_s1v2d2')])
     )
+    runner.logger.info(args)
     runner.train()
 
 

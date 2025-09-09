@@ -169,7 +169,7 @@ def main():
     train_root = args.trainroot
     print(train_root)
     # RealGTPolyDataset,DenoisePolyDataset
-    train_set = DenoisePolyDataset(
+    train_set = RealGTPolyDataset(
         root = train_root,
         img_dir='image_patch',
         gt_dir='gt_poly',
@@ -215,7 +215,7 @@ def main():
         shuffle=False,
         collate_fn=my_collate_fn)
     # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
-    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_Denoise_{train_root.split("/")[-1]}'
+    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_{train_root.split("/")[-1]}'
     # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_Deniose_AutoReg_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
@@ -243,6 +243,7 @@ def main():
                            logger=dict(interval=100, type='LoggerHook')),
         # visualizer=dict(type='Visualizer', vis_backends=[dict(type='TensorboardVisBackend', save_dir='/home/guning.wyx/code/mmengine/runs/polyv2_s1v2d2')])
     )
+    runner.logger.info(args)
     runner.train()
 
 
