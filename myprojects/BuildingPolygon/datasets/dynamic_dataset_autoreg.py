@@ -3,6 +3,7 @@ import os.path as osp
 import pickle
 import numpy as np
 import cv2
+import json
 import math
 from PIL import Image
 from torchvision.datasets import VisionDataset
@@ -37,13 +38,30 @@ class RealGTPolyDataset(VisionDataset):
         self.sorted_length = np.sort(self.point_length)
         self.sorted_indices = np.argsort(self.point_length)
 
+        try:
+            with open(osp.join(root,'noise_record.json'),'r') as f:
+                noise = json.load(f)
+        except:
+            noise = []
+
         if select_k:
             random.seed(2)
             self.sorted_indices = random.choices(self.sorted_indices,k=select_k)
             self.sorted_length = [self.sorted_length[i] for i in self.sorted_indices]
             self.length = len(self.sorted_length)
         
-        
+        self.noise_flag = []
+        # 没有噪声为False
+        for i in range(self.length):
+            if noise==[]:
+                self.noise_flag.append(False)
+                continue
+            if i==noise[0]['id']:
+                self.noise_flag.append(True)
+                noise.pop(0)
+            else:
+                self.noise_flag.append(False)
+
         pass
 
     def __len__(self):
@@ -75,7 +93,7 @@ class RealGTPolyDataset(VisionDataset):
             # gt = self.target_transform(gt)
             # cls_gt = self.target_transform(cls_gt)
             real_gt = self.target_transform(real_gt)
-        meta = dict(img_path=img_path, ori_shape=ori_shape)
+        meta = dict(img_path=img_path, ori_shape=ori_shape, noise_flag=self.noise_flag[index])
         data_samples = dict(real_gt=real_gt,meta=meta)
         return img, data_samples
     
