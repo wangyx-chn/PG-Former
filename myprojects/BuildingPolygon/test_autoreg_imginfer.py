@@ -16,9 +16,10 @@ class AutoRegIoU(BaseMetric):
 
     def process(self, data_batch, data_samples):
         data_batch, data_samples = data_samples
-        ori_shape = data_samples['meta']['ori_shape']
+        ori_shape = data_samples['ori_shape']
+        bboxes = data_samples['bbox']
         pred_coords = [(res[1:-1].cpu().numpy()-10)/224.0 for res in data_batch['pred_coords']]
-        pred_poly = [(res * np.array(ori_shape[i])).reshape(-1,1,2).astype(np.int32) for i,res in enumerate(pred_coords)]
+        pred_poly = [(res * np.array(ori_shape[i])+bboxes[i][:2].cpu().numpy()).astype(np.int32) for i,res in enumerate(pred_coords)]
         # test_vis
         vis_dir = osp.join(self.work_dir,'image_infer')
         # if osp.exists(vis_dir):
@@ -33,6 +34,7 @@ class AutoRegIoU(BaseMetric):
                 
                 if self.cur_img_path:
                     img_name = osp.basename(self.cur_img_path)
+                    img_name = osp.splitext(img_name)[0] + '.jpg'
                     cv2.imwrite(osp.join(vis_dir,img_name),self.cur_img)
 
                 self.cur_img_path=img_path
