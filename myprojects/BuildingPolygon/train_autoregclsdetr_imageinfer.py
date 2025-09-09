@@ -111,8 +111,9 @@ def main():
     model = PolyGenModel(model_args)
     # for param in model.network.backbone.parameters():
     #     param.requires_grad = False
-    img_dir = '/home/guning.wyx/code/mmengine/data/WHUBuilding/validation'
-    detect_path = '/home/guning.wyx/code/mmdetection/work_dirs/dino-5scale_swin-l_8xb2-36e_whu/predict_results.pkl'
+    img_dir = '/home/guning.wyx/code/mmdetection/demo/AmapServer/pic_muku'
+    detect_path = '/home/guning.wyx/code/mmdetection/demo/AmapServer/pred_results.pkl'
+    vis_dir = '/home/guning.wyx/code/mmdetection/demo/AmapServer/vis'
     valid_set = ImagePolyDataset(
         img_dir=img_dir,
         detect_path=detect_path,
@@ -134,7 +135,7 @@ def main():
         collate_fn=my_collate_fn)
     
     work_dir=args.workdir
-    val_evaluator=dict(type=IoU,work_dir=work_dir)
+    val_evaluator=dict(type=IoU,work_dir=work_dir,vis_dir=vis_dir)
     
     runner = Runner(
         model=model,

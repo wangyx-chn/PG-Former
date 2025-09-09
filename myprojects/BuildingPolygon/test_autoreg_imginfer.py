@@ -9,9 +9,10 @@ import cv2
 from mmengine.evaluator import BaseMetric
 
 class AutoRegIoU(BaseMetric):
-    def __init__(self, work_dir, collect_device = 'cpu', prefix = None, collect_dir = None):
+    def __init__(self, work_dir,vis_dir=None, collect_device = 'cpu', prefix = None, collect_dir = None):
         super().__init__(collect_device, prefix, collect_dir)
         self.work_dir = work_dir
+        self.vis_dir = vis_dir
         self.cur_img_path = None
 
     def process(self, data_batch, data_samples):
@@ -21,7 +22,7 @@ class AutoRegIoU(BaseMetric):
         pred_coords = [(res[1:-1].cpu().numpy()-10)/224.0 for res in data_batch['pred_coords']]
         pred_poly = [(res * np.array(ori_shape[i])+bboxes[i][:2].cpu().numpy()).astype(np.int32) for i,res in enumerate(pred_coords)]
         # test_vis
-        vis_dir = osp.join(self.work_dir,'image_infer')
+        vis_dir = self.vis_dir if self.vis_dir else osp.join(self.work_dir,'image_infer')
         # if osp.exists(vis_dir):
         #     shutil.rmtree(vis_dir)
         os.makedirs(vis_dir,exist_ok=True)
