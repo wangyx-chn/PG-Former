@@ -40,8 +40,8 @@ class PolyGenModel(BaseModel):
         super().__init__()
         self.network = TwoLineAutoRegDETR(**model_args)
         # self.reg_loss = nn.MSELoss()
-        self.reg_loss = nn.CrossEntropyLoss(ignore_index=-100,reduction='none')
-        self.mse_loss = nn.MSELoss(reduction='none')
+        self.reg_loss = nn.CrossEntropyLoss(ignore_index=-100)
+        self.mse_loss = nn.MSELoss()
         self.delta_reg_loss = nn.CrossEntropyLoss(ignore_index=-100)
         self.delta_mse_loss = nn.MSELoss()
         self.point_weight = cfg.point_weight
@@ -107,9 +107,9 @@ class PolyGenModel(BaseModel):
             soft_loss = self.mse_loss(torch.sigmoid(pred_coords)*(target_coords.unsqueeze(1)!=-100),gaussian*(target_coords.unsqueeze(1)!=-100))
             reg_loss = self.reg_loss(pred_coords, target_coords) # 缩放到[-1,1]
 
-            if (1-noise_flag).sum()!=0:
-                soft_loss = soft_loss/(1-noise_flag).sum()
-                reg_loss = reg_loss/(1-noise_flag).sum()
+            # if (1-noise_flag).sum()!=0:
+            #     soft_loss = soft_loss/(1-noise_flag).sum()
+            #     reg_loss = reg_loss/(1-noise_flag).sum()
             # delta xy 部分的损失函数
             delta_target_coords = delta_target_coords.round().to(torch.int64)
             delta_target_coords = torch.clamp(delta_target_coords,10,243)
@@ -164,9 +164,8 @@ class PolyGenModel(BaseModel):
             # writer.add_scalar("reg_loss", reg_loss)
             # writer.add_scalar("cls_loss", cls_loss)
         
-            return {'loss': loss, 'reg_loss': reg_loss, 'soft_loss': soft_loss,
-                    'delta_soft_loss': delta_soft_loss, 'delta_reg_loss': delta_reg_loss,
-                    'pct_soft_loss': pct_soft_loss, 'pct_reg_loss': pct_reg_loss}
+            return {'loss': loss, 'point_cls': reg_loss, 'point_soft': soft_loss, 'delta_cls': delta_reg_loss,
+                    'delta_soft': delta_soft_loss, 'pct_cls': pct_reg_loss, 'pct_soft': pct_soft_loss}
         elif mode == 'predict':
             bs = imgs.shape[0]
             inputs = NestedTensor(imgs,torch.zeros_like(imgs)[:,0].to(imgs.device))
@@ -210,8 +209,8 @@ def parse_args():
     
     parser.add_argument('--point_weight',type=float,default=1.0)
     parser.add_argument('--delta_weight',type=float,default=0.0)
-    parser.add_argument('--pct_weight',type=float,default=1.0)
-    parser.add_argument('--temp',type=float,default=0.0)
+    parser.add_argument('--pct_weight',type=float,default=0.0)
+    # parser.add_argument('--temp',type=float,default=0.0)
     
     parser.add_argument(
         '--launcher',
@@ -290,13 +289,13 @@ def main():
         shuffle=False,
         collate_fn=my_collate_fn)
     # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
-    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_{train_root.split("/")[-1]}_1'
+    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_V2_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
         model=model,
         work_dir=work_dir,
-        load_from='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_dataset_polygon50_0.1margin_0singlenoise20_train/epoch_48.pth',
+        # load_from='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_dataset_polygon50_0.1margin_0singlenoise20_train/epoch_48.pth',
         # resume=True,
         train_dataloader=train_dataloader,
         optim_wrapper=dict(
