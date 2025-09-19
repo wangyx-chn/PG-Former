@@ -185,7 +185,8 @@ class PolyGenModel(BaseModel):
                 error = 122*l -  pseudo_edge[b,:l].sum(dim=0) # 2
                 dis = torch.norm(pseudo_edge[b,:l].to(torch.float32),dim=-1)  # l
                 weight = dis/dis.sum()  # l
-                close_delta_target[b,:l] = pseudo_edge[b,:l]+(error.unsqueeze(0)*weight.unsqueeze(1)).to(torch.int64)
+                close_delta_target[b,:l] = pseudo_edge[b,:l]+error.unsqueeze(0)*weight.unsqueeze(1).to(torch.int64)
+                close_delta_target[b,:l] = torch.clamp(close_delta_target[b,:l],10,233)
 
             mu = close_delta_target.unsqueeze(1)
             positions = torch.arange(244, dtype=torch.float32, device=mu.device)
@@ -251,13 +252,13 @@ class PolyGenModel(BaseModel):
 def parse_args():
     parser = argparse.ArgumentParser(description='Distributed Training')
     parser.add_argument('-t','--trainroot',type=str,\
-                        default='/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_0.1margin_0singlenoise20_train')
+                        default='/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_margin01_train')
     
     parser.add_argument('--point_weight',type=float,default=1.0)
-    parser.add_argument('--delta_weight',type=float,default=0.2)
-    parser.add_argument('--pct_weight',type=float,default=0.2)
-    parser.add_argument('--pdt_weight',type=float,default=0.2)
-    parser.add_argument('--close_weight',type=float,default=0.2)
+    parser.add_argument('--delta_weight',type=float,default=1.0)
+    parser.add_argument('--pct_weight',type=float,default=0.0)
+    parser.add_argument('--pdt_weight',type=float,default=0.0)
+    parser.add_argument('--close_weight',type=float,default=0.0)
     # parser.add_argument('--temp',type=float,default=0.0)
     
     parser.add_argument(
