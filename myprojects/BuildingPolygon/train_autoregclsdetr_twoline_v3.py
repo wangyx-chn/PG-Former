@@ -34,7 +34,7 @@ from test_autoreg import AutoRegIoU as IoU
 # from tensorboardX import SummaryWriter
 
 '''
-V3:
+V3:没有噪声问题
 1. 点损失+边损失
 2. 边对点的自监督
 3. 点对边的自监督
@@ -55,6 +55,8 @@ class PolyGenModel(BaseModel):
         self.point_weight = cfg.point_weight
         self.delta_weight = cfg.delta_weight
         self.pct_weight = cfg.pct_weight
+        self.pdt_weight = cfg.pdt_weight
+        self.close_weight = cfg.close_weight
 
         # self.temp = cfg.temp
 
@@ -158,22 +160,58 @@ class PolyGenModel(BaseModel):
 
             
             # TODO: 点对边的自监督损失
-            
+            pseudo_coord = torch.argmax(pred_coords,dim=1).detach()
+            pseudo_coord_shift = torch.zeros_like(delta_target_coords).to(delta_target_coords.device)
+            for b,l in enumerate(lens):
+                pseudo_coord_shift[b] = torch.cat([pseudo_coord[b][1:l],pseudo_coord[b][:1],target_coords[b][l:]])
+            pseudo_delta_target = (pseudo_coord_shift-pseudo_coord)/2+122
+            pseudo_delta_target = torch.clamp(pseudo_delta_target,10,233).to(torch.int64)
+            for b,l in enumerate(lens):
+                pseudo_delta_target[b] = torch.cat([pseudo_delta_target[b][:l],delta_target_coords[b][l:]])
 
+            pseudo_delta_target[pad_mask==1]=-100
+            mu = pseudo_delta_target.unsqueeze(1)
+            positions = torch.arange(244, dtype=torch.float32, device=mu.device)
+            positions = positions.view(1, 244, 1, 1)
+            sigma = 2
+            gaussian = torch.exp(- (positions - mu) ** 2 / (2 * sigma ** 2)) # B 224 50 2
+            delta_pseudo_soft_loss = self.delta_mse_loss(torch.sigmoid(pred_delta_coords)*(pseudo_delta_target.unsqueeze(1)!=-100),gaussian*(pseudo_delta_target.unsqueeze(1)!=-100))
+            delta_pseudo_reg_loss = self.delta_reg_loss(pred_delta_coords, pseudo_delta_target) # 缩放到[-1,1]
+            
+        
             # TODO: 边的自闭合损失
+            close_delta_target = deepcopy(delta_target_coords)
+            for b,l in enumerate(lens):
+                error = 122*l -  pseudo_edge[b,:l].sum(dim=0) # 2
+                dis = torch.norm(pseudo_edge[b,:l].to(torch.float32),dim=-1)  # l
+                weight = dis/dis.sum()  # l
+                close_delta_target[b,:l] = pseudo_edge[b,:l]+(error.unsqueeze(0)*weight.unsqueeze(1)).to(torch.int64)
+
+            mu = close_delta_target.unsqueeze(1)
+            positions = torch.arange(244, dtype=torch.float32, device=mu.device)
+            positions = positions.view(1, 244, 1, 1)
+            sigma = 2
+            gaussian = torch.exp(- (positions - mu) ** 2 / (2 * sigma ** 2)) # B 224 50 2
+            close_soft_loss = self.delta_mse_loss(torch.sigmoid(pred_delta_coords)*(close_delta_target.unsqueeze(1)!=-100),gaussian*(close_delta_target.unsqueeze(1)!=-100))
+            close_reg_loss = self.delta_reg_loss(pred_delta_coords, close_delta_target) # 缩放到[-1,1]
             
 
             pct_weight = self.pct_weight
+            pdt_weight = self.pdt_weight
+            close_weight = self.close_weight
 
             loss = point_weight * (reg_loss + soft_loss) + delta_weight * (delta_soft_loss + delta_reg_loss) \
-            + pct_weight * (pct_soft_loss + pct_reg_loss)
+            + pct_weight * (pct_soft_loss + pct_reg_loss) + pdt_weight * (delta_pseudo_soft_loss + delta_pseudo_reg_loss) \
+            + close_weight * (close_soft_loss + close_reg_loss)
             # data_samples['imgs'] = imgs.cpu().numpy()
             # writer.add_scalar("train_loss", loss)
             # writer.add_scalar("reg_loss", reg_loss)
             # writer.add_scalar("cls_loss", cls_loss)
         
             return {'loss': loss, 'point_cls': reg_loss, 'point_soft': soft_loss, 'delta_cls': delta_reg_loss,
-                    'delta_soft': delta_soft_loss, 'pct_cls': pct_reg_loss, 'pct_soft': pct_soft_loss}
+                    'delta_soft': delta_soft_loss, 'pct_cls': pct_reg_loss, 'pct_soft': pct_soft_loss,
+                    'pdt_cls': delta_pseudo_reg_loss, 'pdt_soft': delta_pseudo_soft_loss,
+                    'close_cls': close_reg_loss, 'close_soft': close_soft_loss}
         elif mode == 'predict':
             bs = imgs.shape[0]
             inputs = NestedTensor(imgs,torch.zeros_like(imgs)[:,0].to(imgs.device))
@@ -216,8 +254,10 @@ def parse_args():
                         default='/home/guning.wyx/code/mmengine/data/WHUBuilding/polygeneration/dataset_polygon50_0.1margin_0singlenoise20_train')
     
     parser.add_argument('--point_weight',type=float,default=1.0)
-    parser.add_argument('--delta_weight',type=float,default=0.0)
-    parser.add_argument('--pct_weight',type=float,default=0.0)
+    parser.add_argument('--delta_weight',type=float,default=0.2)
+    parser.add_argument('--pct_weight',type=float,default=0.2)
+    parser.add_argument('--pdt_weight',type=float,default=0.2)
+    parser.add_argument('--close_weight',type=float,default=0.2)
     # parser.add_argument('--temp',type=float,default=0.0)
     
     parser.add_argument(
@@ -297,7 +337,7 @@ def main():
         shuffle=False,
         collate_fn=my_collate_fn)
     # work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_0.1margin_1.0noise20'
-    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_V2_{train_root.split("/")[-1]}'
+    work_dir=f'/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_TwoLineAutoReg_V3_{train_root.split("/")[-1]}'
     val_evaluator=dict(type=IoU,work_dir=work_dir,img_dir=osp.join(val_root,'image_patch'))
     
     runner = Runner(
