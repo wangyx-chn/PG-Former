@@ -87,7 +87,7 @@ def parse_args():
         choices=['none', 'pytorch', 'slurm', 'mpi'],
         default='none',
         help='job launcher')
-    parser.add_argument('-w','--workdir', type=str, default='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50')
+    parser.add_argument('-w','--workdir', type=str, default='/home/guning.wyx/code/mmengine/work_dirs/PolyGenDETR_AutoReg_polygon50_margin01')
     parser.add_argument('--local-rank', type=int, default=0)
 
     args = parser.parse_args()

@@ -2,6 +2,7 @@ import os
 import os.path as osp
 import pickle
 import numpy as np
+import torch
 import cv2
 import math
 from PIL import Image
@@ -39,7 +40,13 @@ class ImagePolyDataset(VisionDataset):
             n = len(results['scores'])
             for i in range(n):
                 if results['scores'][i]>self.thr:
-                    res = {'img_path':osp.join(img_dir,osp.basename(img['img_path'])),'bbox':results['bboxes'][i],'score':results['scores'][i]}
+                    bbox = results['bboxes'][i]
+                    w_margin = (bbox[2]-bbox[0])//10
+                    h_margin = (bbox[3]-bbox[1])//10
+                    margin = torch.Tensor([-w_margin,-h_margin,w_margin,h_margin]).to(bbox.device)
+                    bbox = bbox+margin
+
+                    res = {'img_path':osp.join(img_dir,osp.basename(img['img_path'])),'bbox':bbox,'score':results['scores'][i]}
                     self.all_results.append(res)
             
         self.cur_img_path = None
@@ -54,8 +61,26 @@ class ImagePolyDataset(VisionDataset):
             self.cur_img = Image.open(img_path).convert('RGB')
             self.cur_img_path = img_path
         
-        bbox = res['bbox']
-        img_patch = self.cur_img.crop(bbox.tolist())
+        w,h = self.cur_img.size
+        x0,y0,x1,y1 = res['bbox'].tolist()
+        bw,bh = x1-x0,y1-y0
+        if bh>=bw:
+            bbox = [int(x0-(bh-bw)/2), y0, int(x0-(bh-bw)/2)+bh, y0+bh]
+        else:
+            bbox = [x0, int(y0-(bw-bh)/2), x0+bw, int(y0-(bw-bh)/2)+bw]
+        if bbox[0]<0:
+            bbox[2]-=bbox[0]
+            bbox[0]=0
+        if bbox[1]<0:
+            bbox[3]-=bbox[1]
+            bbox[1]=0
+        if bbox[2]>w:
+            bbox[0]-=bbox[2]-w
+            bbox[2]=w
+        if bbox[3]>h:
+            bbox[1]-=bbox[3]-h
+            bbox[3]=h
+        img_patch = self.cur_img.crop(bbox)
         ori_shape = img_patch.size
 
         if self.transform is not None:

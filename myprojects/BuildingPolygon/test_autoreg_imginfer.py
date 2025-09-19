@@ -20,7 +20,7 @@ class AutoRegIoU(BaseMetric):
         ori_shape = data_samples['ori_shape']
         bboxes = data_samples['bbox']
         pred_coords = [(res[1:-1].cpu().numpy()-10)/224.0 for res in data_batch['pred_coords']]
-        pred_poly = [(res * np.array(ori_shape[i])+bboxes[i][:2].cpu().numpy()).astype(np.int32) for i,res in enumerate(pred_coords)]
+        pred_poly = [(res * np.array(ori_shape[i])+np.array(bboxes[i][:2])).astype(np.int32) for i,res in enumerate(pred_coords)]
         # test_vis
         vis_dir = self.vis_dir if self.vis_dir else osp.join(self.work_dir,'image_infer')
         # if osp.exists(vis_dir):
